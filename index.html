@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Sardines</title>
+<link rel="icon" href="logo.svg">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header>
+  <div class="logo-mark" id="logoMark"></div>
+  <h1>Sardines</h1>
+  <span class="room-badge" id="roomBadge" style="display:none;"></span>
+</header>
+
+<main>
+  <div class="card">
+
+    <!-- JOIN SCREEN -->
+    <section class="screen active" id="screen-join">
+      <p class="eyebrow">New round</p>
+      <h2>Squeeze in</h2>
+      <p class="sub">Everyone types their name and role before the round starts. Share the same room code with your group.</p>
+
+      <label for="roomInput">Room code</label>
+      <input type="text" id="roomInput" placeholder="e.g. porch-42" autocomplete="off" autocapitalize="off">
+
+      <label for="nameInput">Your name</label>
+      <input type="text" id="nameInput" placeholder="e.g. Sam" autocomplete="off">
+
+      <label>Role</label>
+      <div class="role-toggle">
+        <button type="button" id="roleHider" data-role="hider">Hider</button>
+        <button type="button" id="roleSeeker" data-role="seeker">Seeker</button>
+      </div>
+
+      <button class="btn" id="joinBtn">Join room</button>
+      <p class="err" id="joinErr"></p>
+    </section>
+
+    <!-- LOBBY SCREEN -->
+    <section class="screen" id="screen-lobby">
+      <p class="eyebrow">Waiting to start</p>
+      <h2 id="lobbyRoomName">Room</h2>
+      <p class="sub">Hiders get 2 minutes to disappear once the round starts. Need at least one of each role.</p>
+
+      <div class="player-cols">
+        <div class="player-col">
+          <h3>Hiders</h3>
+          <div id="hiderList"></div>
+        </div>
+        <div class="player-col">
+          <h3>Seekers</h3>
+          <div id="seekerList"></div>
+        </div>
+      </div>
+
+      <button class="btn" id="startBtn" disabled>Start round</button>
+      <p class="hint" id="lobbyHint">Waiting for at least one hider and one seeker&hellip;</p>
+    </section>
+
+    <!-- GAME SCREEN -->
+    <section class="screen" id="screen-game">
+      <p class="phase-label" id="phaseLabel">Hiding</p>
+      <div class="timer" id="timerDisplay">2:00</div>
+      <div class="dots" id="hintDots"></div>
+
+      <!-- seeker-only -->
+      <div id="seekerPanel" style="display:none;">
+        <button class="btn" id="hintBtn">Request a hint</button>
+        <p class="hint" id="hintStatus"></p>
+      </div>
+
+      <!-- hider-only -->
+      <div id="hiderPanel" style="display:none;">
+        <div class="banner pulse" id="requestBanner" style="display:none;">
+          <strong>A seeker is asking for a hint</strong>
+          Type something to point them in the right direction.
+        </div>
+        <textarea id="hintText" placeholder="e.g. warmer near the kitchen&hellip;" style="display:none;"></textarea>
+        <button class="btn" id="sendHintBtn" style="display:none;">Send hint</button>
+        <p class="hint" id="hiderIdle">You'll get a notification here when a seeker asks for a hint.</p>
+      </div>
+
+      <div class="log" id="hintLog"></div>
+
+      <button class="btn secondary" id="newRoundBtn" style="display:none;">New round</button>
+    </section>
+
+  </div>
+</main>
+
+<footer>Sardines &middot; a shared timer for hide and seek</footer>
+
+<script src="app.js"></script>
+</body>
+</html>
