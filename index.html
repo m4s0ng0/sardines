@@ -4,7 +4,15 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Sardines</title>
-<link rel="icon" href="logo.svg">
+<link rel="icon" href="favicon.png">
+<link rel="apple-touch-icon" sizes="180x180" href="icon-180.png">
+<link rel="apple-touch-icon" sizes="167x167" href="icon-167.png">
+<link rel="apple-touch-icon" sizes="152x152" href="icon-152.png">
+<link rel="apple-touch-icon" sizes="120x120" href="icon-120.png">
+<link rel="manifest" href="manifest.json">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Sardines">
+<meta name="theme-color" content="#336772">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -22,7 +30,7 @@
     <section class="screen active" id="screen-join">
       <p class="eyebrow">New round</p>
       <h2>Squeeze in</h2>
-      <p class="sub">Everyone types their name and role before the round starts. Share the same room code with your group.</p>
+      <p class="sub">Everyone types their name and role before the round starts. Share the same room code with your group — typing a code that doesn't exist yet creates it.</p>
 
       <label for="roomInput">Room code</label>
       <input type="text" id="roomInput" placeholder="e.g. porch-42" autocomplete="off" autocapitalize="off">
@@ -86,13 +94,15 @@
 
       <div class="log" id="hintLog"></div>
 
-      <button class="btn secondary" id="newRoundBtn" style="display:none;">New round</button>
+      <button class="btn secondary" id="newRoundBtn" style="display:none;">End round</button>
     </section>
 
   </div>
 </main>
 
 <footer>Sardines &middot; a shared timer for hide and seek</footer>
+
+<div id="toastStack" aria-live="polite"></div>
 
 <script src="app.js"></script>
 </body>

@@ -38,12 +38,14 @@
   const hiderIdle = document.getElementById("hiderIdle");
   const hintLog = document.getElementById("hintLog");
   const newRoundBtn = document.getElementById("newRoundBtn");
+  const toastStack = document.getElementById("toastStack");
 
   let selectedRole = null;
   let ws = null;
   let myId = null;
   let latestState = null;
   let tickHandle = null;
+  let pendingJoin = null; // {room, name, role} — replayed on (re)connect
 
   const HIDE_DURATION_FALLBACK = 120000;
 
@@ -52,9 +54,57 @@
     fishMarkup = svg;
     document.getElementById("logoMark").innerHTML = svg;
   }).catch(() => {});
+  function fishIcon() { return fishMarkup || ""; }
 
-  function fishIcon() {
-    return fishMarkup || "";
+  // --- notifications: toast / sound / vibration / system ---
+  let audioCtx = null;
+  let notifPermissionAsked = false;
+  function ensureAudio() {
+    if (!audioCtx) { try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch { audioCtx = null; } }
+    if (audioCtx && audioCtx.state === "suspended") audioCtx.resume().catch(() => {});
+  }
+  function beep(freq = 880, duration = 140) {
+    if (!audioCtx) return;
+    try {
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.frequency.value = freq;
+      osc.type = "sine";
+      gain.gain.setValueAtTime(0.001, audioCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.18, audioCtx.currentTime + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration / 1000);
+      osc.connect(gain).connect(audioCtx.destination);
+      osc.start();
+      osc.stop(audioCtx.currentTime + duration / 1000 + 0.02);
+    } catch {}
+  }
+  function vibrate(pattern) { if (navigator.vibrate) { try { navigator.vibrate(pattern); } catch {} } }
+  function toast(message) {
+    const el = document.createElement("div");
+    el.className = "toast";
+    el.textContent = message;
+    toastStack.appendChild(el);
+    requestAnimationFrame(() => el.classList.add("show"));
+    setTimeout(() => { el.classList.remove("show"); setTimeout(() => el.remove(), 300); }, 3600);
+  }
+  function systemNotify(title, body) {
+    if (typeof Notification === "undefined") return;
+    if (Notification.permission === "granted" && document.hidden) {
+      try { new Notification(title, { body, icon: "logo.svg" }); } catch {}
+    }
+  }
+  function maybeAskNotificationPermission() {
+    if (notifPermissionAsked) return;
+    notifPermissionAsked = true;
+    if (typeof Notification !== "undefined" && Notification.permission === "default") {
+      Notification.requestPermission().catch(() => {});
+    }
+  }
+  function notify(message, { soundFreq, vibratePattern, sysTitle } = {}) {
+    toast(message);
+    if (soundFreq) beep(soundFreq);
+    if (vibratePattern) vibrate(vibratePattern);
+    if (sysTitle) systemNotify(sysTitle, message);
   }
 
   // --- role selection ---
@@ -71,28 +121,19 @@
   }
 
   // --- connection ---
-  joinBtn.addEventListener("click", () => {
-    joinErr.textContent = "";
-    const room = slugRoom(roomInput.value);
-    const name = nameInput.value.trim();
-    if (!room) { joinErr.textContent = "Enter a room code."; return; }
-    if (!name) { joinErr.textContent = "Enter your name."; return; }
-    if (!selectedRole) { joinErr.textContent = "Pick a role."; return; }
-
-    joinBtn.disabled = true;
-    joinBtn.textContent = "Connecting\u2026";
-
+  function connect(room, name, role) {
     const proto = location.protocol === "https:" ? "wss" : "ws";
-    ws = new WebSocket(`${proto}://${location.host}/room/${encodeURIComponent(room)}`);
+    const socket = new WebSocket(`${proto}://${location.host}/room/${encodeURIComponent(room)}`);
 
-    ws.addEventListener("open", () => {
-      ws.send(JSON.stringify({ type: "join", name, role: selectedRole }));
+    socket.addEventListener("open", () => {
+      socket.send(JSON.stringify({ type: "join", name, role }));
       roomBadge.textContent = room;
       roomBadge.style.display = "inline-block";
       lobbyRoomName.textContent = room;
+      joinErr.textContent = "";
     });
 
-    ws.addEventListener("message", (ev) => {
+    socket.addEventListener("message", (ev) => {
       const msg = JSON.parse(ev.data);
       if (msg.type === "welcome") {
         myId = msg.id;
@@ -104,19 +145,38 @@
       }
     });
 
-    ws.addEventListener("close", () => {
+    socket.addEventListener("close", (ev) => {
       joinBtn.disabled = false;
       joinBtn.textContent = "Join room";
-      if (screens.join.classList.contains("active") === false) {
-        joinErr.textContent = "Connection lost. Refresh to rejoin.";
+      if (!screens.join.classList.contains("active")) {
+        joinErr.textContent = `Connection lost (code ${ev.code}). Tap below to rejoin.`;
+        toast("Disconnected from the room.");
       }
     });
 
-    ws.addEventListener("error", () => {
-      joinErr.textContent = "Couldn't connect. Check the room code and try again.";
+    socket.addEventListener("error", () => {
+      joinErr.textContent = `Couldn't reach ${location.host}. Make sure this page is being served from your deployed Cloudflare Worker (not a plain static host like GitHub Pages), and that it has a Durable Object binding named GAME_ROOM.`;
       joinBtn.disabled = false;
       joinBtn.textContent = "Join room";
     });
+
+    return socket;
+  }
+
+  joinBtn.addEventListener("click", () => {
+    ensureAudio();
+    maybeAskNotificationPermission();
+    joinErr.textContent = "";
+    const room = slugRoom(roomInput.value);
+    const name = nameInput.value.trim();
+    if (!room) { joinErr.textContent = "Enter a room code."; return; }
+    if (!name) { joinErr.textContent = "Enter your name."; return; }
+    if (!selectedRole) { joinErr.textContent = "Pick a role."; return; }
+
+    joinBtn.disabled = true;
+    joinBtn.textContent = "Connecting\u2026";
+    pendingJoin = { room, name, role: selectedRole };
+    ws = connect(room, name, selectedRole);
   });
 
   startBtn.addEventListener("click", () => send({ type: "start" }));
@@ -127,10 +187,20 @@
     send({ type: "sendHint", text });
     hintText.value = "";
   });
-  newRoundBtn.addEventListener("click", () => send({ type: "reset" }));
+  newRoundBtn.addEventListener("click", () => {
+    const stillHiding = latestState && latestState.phase === "hiding" &&
+      Date.now() - latestState.startTime < latestState.duration;
+    if (stillHiding && !confirm("End the round early for everyone?")) return;
+    send({ type: "reset" });
+  });
 
   function send(obj) {
-    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj));
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify(obj));
+    } else if (pendingJoin) {
+      joinErr.textContent = "Not connected yet \u2014 reconnecting\u2026";
+      ws = connect(pendingJoin.room, pendingJoin.name, pendingJoin.role);
+    }
   }
 
   // --- rendering ---
@@ -146,6 +216,7 @@
       showScreen("game");
       renderGame(s, me);
     }
+    detectEvents(s, me);
     startTicking();
   }
 
@@ -177,7 +248,6 @@
     seekerPanel.style.display = isSeeker ? "block" : "none";
     hiderPanel.style.display = isHider ? "block" : "none";
 
-    // hint dots
     hintDots.innerHTML = "";
     for (let i = 0; i < s.hints.max; i++) {
       const d = document.createElement("span");
@@ -185,12 +255,10 @@
       hintDots.appendChild(d);
     }
 
-    // hint log
     hintLog.innerHTML = s.log.length
       ? s.log.map(h => `<div class="log-item"><div class="from">${escapeHtml(h.from)}</div>${escapeHtml(h.text)}</div>`).join("")
       : `<p class="log-empty">No hints sent yet.</p>`;
 
-    // hider request banner
     if (isHider) {
       requestBanner.style.display = s.pendingRequest ? "block" : "none";
       hintText.style.display = s.pendingRequest ? "block" : "none";
@@ -206,6 +274,7 @@
     tick();
   }
 
+  let seekAnnounced = false;
   function tick() {
     if (!latestState || latestState.phase === "lobby") return;
     const s = latestState;
@@ -217,6 +286,11 @@
     phaseLabel.textContent = seekPhase ? "Seek!" : "Hiding";
     phaseLabel.classList.toggle("seek", seekPhase);
 
+    if (seekPhase && !seekAnnounced) {
+      seekAnnounced = true;
+      notify("Time's up \u2014 seekers, go!", { soundFreq: 520, vibratePattern: [120, 60, 120], sysTitle: "Sardines" });
+    }
+
     const totalSec = Math.ceil(remaining / 1000);
     const mm = Math.floor(totalSec / 60);
     const ss = totalSec % 60;
@@ -224,9 +298,9 @@
     timerDisplay.classList.toggle("warn", !seekPhase && remaining <= 15000);
     timerDisplay.classList.toggle("done", seekPhase);
 
-    newRoundBtn.style.display = seekPhase ? "block" : "none";
+    newRoundBtn.style.display = "block";
+    newRoundBtn.textContent = seekPhase ? "New round" : "End round";
 
-    // hint button state (seeker)
     const me = myId ? s.players[myId] : null;
     if (me && me.role === "seeker") {
       const cooldownLeft = Math.max(0, (s.hints.cooldownUntil || 0) - now);
@@ -243,5 +317,32 @@
         hintStatus.textContent = `${s.hints.max - s.hints.used} hint${s.hints.max - s.hints.used === 1 ? "" : "s"} left.`;
       }
     }
+  }
+
+  // --- event diffing (fires notifications on state transitions) ---
+  let prevPhase = null;
+  let prevPendingRequest = false;
+  let prevLogLength = 0;
+
+  function detectEvents(s, me) {
+    if (prevPhase === "lobby" && s.phase === "hiding") {
+      notify("Round started \u2014 hiders have 2 minutes.", { soundFreq: 660, vibratePattern: [80], sysTitle: "Sardines" });
+      seekAnnounced = false;
+    }
+    if (prevPhase === "hiding" && s.phase === "lobby") {
+      notify("Round ended. Back in the lobby.", { soundFreq: 440, vibratePattern: [60], sysTitle: "Sardines" });
+    }
+    if (s.pendingRequest && !prevPendingRequest && me && me.role === "hider") {
+      notify("A seeker is asking for a hint.", { soundFreq: 990, vibratePattern: [80, 60, 80], sysTitle: "Hint requested" });
+    }
+    if (s.log.length > prevLogLength) {
+      const latest = s.log[s.log.length - 1];
+      if (me && me.role === "seeker") {
+        notify(`Hint: ${latest.text}`, { soundFreq: 770, vibratePattern: [80], sysTitle: "New hint" });
+      }
+    }
+    prevPhase = s.phase;
+    prevPendingRequest = s.pendingRequest;
+    prevLogLength = s.log.length;
   }
 })();
